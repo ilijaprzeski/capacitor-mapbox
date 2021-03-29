@@ -60,5 +60,8 @@
   },
   "bugs": {
     "url": "https://bitbucket.org/arthas-development/capacitor-mapbox-navigation/issues"
-  }
+  },
+  "runtimeArgs": [
+    "--preserve-symlinks"
+  ]
 }

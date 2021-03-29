@@ -1,5 +1,5 @@
 import { WebPlugin } from '@capacitor/core';
-import { CapacitorMapboxNavigationPlugin } from './definitions';
+import { CapacitorMapboxNavigationPlugin, MapboxNavOptions } from './definitions';
 
 export class CapacitorMapboxNavigationWeb extends WebPlugin implements CapacitorMapboxNavigationPlugin {
   constructor() {
@@ -12,6 +12,10 @@ export class CapacitorMapboxNavigationWeb extends WebPlugin implements Capacitor
   async echo(options: { value: string }): Promise<{ value: string }> {
     console.log('ECHO', options);
     return options;
+  }
+
+  async show(options: MapboxNavOptions): Promise<void> {
+    console.log('show', options);
   }
 }
 

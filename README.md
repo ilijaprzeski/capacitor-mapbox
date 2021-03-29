@@ -1,1 +1,1 @@
-# capacitor-mapbox
+# capacitor-mapbox-navigation
