@@ -5,10 +5,13 @@ import MapboxDirections
 import MapboxCoreNavigation
 import MapboxNavigation
 
-struct Location {
-    var longtitude = 0
-    var latitude = 0
+struct Location: Codable {
+    var longtitude: Double = 0.0
+    var latitude: Double = 0.0
 }
+
+var lastLocation: Location?;
+var locationHistory: NSMutableArray?;
 
 /**
  * Please read the Capacitor iOS Plugin Development Guide
@@ -16,7 +19,34 @@ struct Location {
  */
 @objc(CapacitorMapboxNavigation)
 public class CapacitorMapboxNavigation: CAPPlugin {
+   
+    @objc override public func load() {
+        // Called when the plugin is first constructed in the bridge
+        locationHistory = NSMutableArray();
+        NotificationCenter.default.addObserver(self, selector: #selector(progressDidChange(notification:)), name: .routeControllerProgressDidChange, object: nil)
+    }
     
+    @objc func progressDidChange(notification: NSNotification) {
+        let location = notification.userInfo![RouteController.NotificationUserInfoKey.locationKey] as! CLLocation
+        lastLocation?.latitude = location.coordinate.latitude;
+        lastLocation?.longtitude = location.coordinate.longitude;
+        locationHistory?.add(Location(longtitude: location.coordinate.longitude, latitude: location.coordinate.latitude));
+        emitLocationUpdatedEvent();
+    }
+    
+    func emitLocationUpdatedEvent() {
+        let jsonEncoder = JSONEncoder()
+        do {
+            let swiftArray = locationHistory as AnyObject as! [Location]
+            let locationHistoryJsonData = try jsonEncoder.encode(swiftArray)
+            let locationHistoryJson = String(data: locationHistoryJsonData, encoding: String.Encoding.utf8) ?? ""
+            
+            self.bridge.triggerWindowJSEvent(eventName: "location_updated", data: locationHistoryJson)
+            
+        } catch {
+            print("Error: Json Parsing Error");
+        }
+    }
 
     @objc func echo(_ call: CAPPluginCall) {
         
@@ -27,7 +57,29 @@ public class CapacitorMapboxNavigation: CAPPlugin {
         ])
     }
     
+    @objc func history(_ call: CAPPluginCall) {
+        let jsonEncoder = JSONEncoder()
+        do {
+            let lastLocationJsonData = try jsonEncoder.encode(lastLocation)
+            let lastLocationJson = String(data: lastLocationJsonData, encoding: String.Encoding.utf8)
+            
+            let swiftArray = locationHistory as AnyObject as! [Location]
+            let locationHistoryJsonData = try jsonEncoder.encode(swiftArray)
+            let locationHistoryJson = String(data: locationHistoryJsonData, encoding: String.Encoding.utf8)
+            
+            call.success([
+                "lastLocation": lastLocationJson ?? "",
+                "locationHistory": locationHistoryJson ?? ""
+            ])
+        } catch {
+            call.error("Error: Json Encoding Error")
+        }
+    }
+    
     @objc func show (_ call: CAPPluginCall) {
+        lastLocation = Location(longtitude: 0.0, latitude: 0.0);
+        locationHistory?.removeAllObjects()
+        
         let routes = call.getArray("routes", NSDictionary.self) ?? [NSDictionary]()
         for route in routes {
             guard (route["longtitude"] != nil && route["latitude"] != nil) else {
@@ -74,6 +126,10 @@ public class CapacitorMapboxNavigation: CAPPlugin {
     }
 }
 
+extension NavigationViewController {
+    
+}
+
 class CustomDayStyle: DayStyle {
     required init(mapType: String) {
         super.init()
@@ -89,9 +145,6 @@ class CustomDayStyle: DayStyle {
     
     override func apply() {
         super.apply()
-        
-        TopBannerView.appearance().isHidden = true;
-        BottomBannerView.appearance().isHidden = true;
     }
 }
 
@@ -110,13 +163,5 @@ class CustomNightStyle: NightStyle {
      
     override func apply() {
         super.apply()
-
-        TopBannerView.appearance().backgroundColor = .red;
-        TopBannerView.appearance().isHidden = true;
-        BottomBannerView.appearance().isHidden = true;
-        BottomBannerView.appearance().backgroundColor = .red;
-        
-        InstructionsBannerView.appearance().backgroundColor = .red;
-        InstructionsBannerView.appearance().isHidden = false;
     }
 }

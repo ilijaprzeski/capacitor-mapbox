@@ -13,6 +13,7 @@ Pod::Spec.new do |s|
   s.source_files = 'ios/Plugin/**/*.{swift,h,m,c,cc,mm,cpp}'
   s.resources = 'ios/Plugin/**/*.{xib}'
   s.ios.deployment_target  = '11.0'
+  s.static_framework = true
   s.dependency 'Capacitor'
   s.dependency 'MapboxNavigation', '~> 1.3'
   s.swift_version = '5.1'

@@ -17,6 +17,10 @@ export class CapacitorMapboxNavigationWeb extends WebPlugin implements Capacitor
   async show(options: MapboxNavOptions): Promise<void> {
     console.log('show', options);
   }
+
+  async history(): Promise<any> {
+    console.log('history');
+  }
 }
 
 const CapacitorMapboxNavigation = new CapacitorMapboxNavigationWeb();

@@ -7,6 +7,7 @@ declare module '@capacitor/core' {
 export interface CapacitorMapboxNavigationPlugin {
   echo(options: { value: string }): Promise<{ value: string }>;
   show(options: MapboxNavOptions): Promise<void>;
+  history(): Promise<any>;
 }
 
 export interface MapboxNavOptions {
