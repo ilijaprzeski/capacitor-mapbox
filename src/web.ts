@@ -1,14 +1,10 @@
 import { WebPlugin } from '@capacitor/core';
-import { CapacitorMapboxNavigationPlugin, MapboxNavOptions } from './definitions';
 
-export class CapacitorMapboxNavigationWeb extends WebPlugin implements CapacitorMapboxNavigationPlugin {
-  constructor() {
-    super({
-      name: 'CapacitorMapboxNavigation',
-      platforms: ['web'],
-    });
-  }
+import type { CapacitorMapboxNavigationPlugin, MapboxNavOptions } from './definitions';
 
+export class CapacitorMapboxNavigationWeb
+  extends WebPlugin
+  implements CapacitorMapboxNavigationPlugin {
   async echo(options: { value: string }): Promise<{ value: string }> {
     console.log('ECHO', options);
     return options;
@@ -22,10 +18,3 @@ export class CapacitorMapboxNavigationWeb extends WebPlugin implements Capacitor
     console.log('history');
   }
 }
-
-const CapacitorMapboxNavigation = new CapacitorMapboxNavigationWeb();
-
-export { CapacitorMapboxNavigation };
-
-import { registerWebPlugin } from '@capacitor/core';
-registerWebPlugin(CapacitorMapboxNavigation);

@@ -6,19 +6,30 @@ import MapboxCoreNavigation
 import MapboxNavigation
 
 struct Location: Codable {
-    var longtitude: Double = 0.0
+    var _id: Int = 0
+    var longitude: Double = 0.0
     var latitude: Double = 0.0
+    var when: String = ""
 }
 
 var lastLocation: Location?;
 var locationHistory: NSMutableArray?;
+var routes = [NSDictionary]();
 
 /**
  * Please read the Capacitor iOS Plugin Development Guide
  * here: https://capacitorjs.com/docs/plugins/ios
  */
-@objc(CapacitorMapboxNavigation)
-public class CapacitorMapboxNavigation: CAPPlugin {
+@objc(CapacitorMapboxNavigationPlugin)
+public class CapacitorMapboxNavigationPlugin: CAPPlugin {
+    func getNowString() -> String {
+        let date = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZZZZZ"
+        return formatter.string(from: date);
+    }
    
     @objc override public func load() {
         // Called when the plugin is first constructed in the bridge
@@ -27,10 +38,13 @@ public class CapacitorMapboxNavigation: CAPPlugin {
     }
     
     @objc func progressDidChange(notification: NSNotification) {
+        let dateString = getNowString();
+        
         let location = notification.userInfo![RouteController.NotificationUserInfoKey.locationKey] as! CLLocation
         lastLocation?.latitude = location.coordinate.latitude;
-        lastLocation?.longtitude = location.coordinate.longitude;
-        locationHistory?.add(Location(longtitude: location.coordinate.longitude, latitude: location.coordinate.latitude));
+        lastLocation?.longitude = location.coordinate.longitude;
+        lastLocation?.when = dateString;
+        locationHistory?.add(Location(longitude: location.coordinate.longitude, latitude: location.coordinate.latitude, when: dateString));
         emitLocationUpdatedEvent();
     }
     
@@ -41,7 +55,10 @@ public class CapacitorMapboxNavigation: CAPPlugin {
             let locationHistoryJsonData = try jsonEncoder.encode(swiftArray)
             let locationHistoryJson = String(data: locationHistoryJsonData, encoding: String.Encoding.utf8) ?? ""
             
-            self.bridge.triggerWindowJSEvent(eventName: "location_updated", data: locationHistoryJson)
+            let lastLocationJsonData = try jsonEncoder.encode(lastLocation)
+            let lastLocationJson = String(data: lastLocationJsonData, encoding: String.Encoding.utf8) ?? ""
+            
+            self.bridge.triggerWindowJSEvent(eventName: "location_updated", data: String(format: "{lastLocation: %@, locationHistory:  %@}", lastLocationJson, locationHistoryJson))
             
         } catch {
             print("Error: Json Parsing Error");
@@ -77,44 +94,39 @@ public class CapacitorMapboxNavigation: CAPPlugin {
     }
     
     @objc func show (_ call: CAPPluginCall) {
-        lastLocation = Location(longtitude: 0.0, latitude: 0.0);
+        lastLocation = Location(longitude: 0.0, latitude: 0.0);
         locationHistory?.removeAllObjects()
         
-        let routes = call.getArray("routes", NSDictionary.self) ?? [NSDictionary]()
+        routes = call.getArray("waypoints", NSDictionary.self) ?? [NSDictionary]()
+        var waypoints = [Waypoint]();
         for route in routes {
-            guard (route["longtitude"] != nil && route["latitude"] != nil) else {
-                call.error("Wrong format location.")
-                return ;
-            }
+            let location = route["location"] as! NSArray;
+            waypoints.append(Waypoint(coordinate: CLLocationCoordinate2DMake(location[1] as! CLLocationDegrees, location[0] as! CLLocationDegrees)))
         }
         
         let mapType = call.getString("mapType") ?? "mapbox://styles/mapbox/satellite-streets-v9"
+        let isSimulate = call.getBool("simulating") ?? false
         
-        var coordinates = [CLLocationCoordinate2D]();
-        for route in routes {
-            coordinates.append(CLLocationCoordinate2DMake(route["latitude"] as! CLLocationDegrees, route["longtitude"] as! CLLocationDegrees))
-        }
-        
-        let routeOptions = NavigationRouteOptions(coordinates: coordinates)
-         
+        let routeOptions = NavigationRouteOptions(waypoints: waypoints, profileIdentifier: .automobile)
+
         // Request a route using MapboxDirections.swift
         Directions.shared.calculate(routeOptions) { [weak self] (session, result) in
             switch result {
                 case .failure(let error):
                     print(error.localizedDescription)
                 case .success(let response):
-                    guard let route = response.routes?.first else {
+                    guard let route = response.routes?.first, let strongSelf = self else {
                         return
                     }
                     
                     let topBanner = CustomTopBarViewController()
-//                    let bottomBanner = CustomBottomBarViewController()
-                    let navigationService = MapboxNavigationService(route: route, routeIndex: 0, routeOptions: routeOptions, simulating: .always)
+                    let navigationService = MapboxNavigationService(route: route, routeIndex: 0, routeOptions: routeOptions, simulating: isSimulate ? .always : .never)
                     let navigationOptions = NavigationOptions(styles: [CustomDayStyle(mapType: mapType), CustomNightStyle(mapType: mapType)], navigationService: navigationService, topBanner: topBanner)
                     
                     let viewController = NavigationViewController(for: route, routeIndex: 0, routeOptions: routeOptions, navigationOptions: navigationOptions)
                     viewController.modalPresentationStyle = .fullScreen
                     viewController.waypointStyle = .extrudedBuilding;
+                    viewController.delegate = strongSelf;
                     DispatchQueue.main.async {
                         self?.setCenteredPopover(viewController)
                         self?.bridge.viewController.present(viewController, animated: true, completion: nil)
@@ -126,8 +138,41 @@ public class CapacitorMapboxNavigation: CAPPlugin {
     }
 }
 
-extension NavigationViewController {
+extension CapacitorMapboxNavigation: NavigationViewControllerDelegate {
+    // Show an alert when arriving at the waypoint and wait until the user to start next leg.
+    public func navigationViewController(_ navigationViewController: NavigationViewController, didArriveAt waypoint: Waypoint) -> Bool {
+        
+        let jsonEncoder = JSONEncoder()
+        do {
+            var minDistance: CLLocationDistance = 0;
+            var locationId = 0;
+            for (i, route) in routes.enumerated() {
+                let location = route["location"] as! NSArray;
+                let coord1 = CLLocation(latitude: location[1] as! CLLocationDegrees, longitude: location[0] as! CLLocationDegrees)
+                let coord2 = CLLocation(latitude: waypoint.coordinate.latitude, longitude: waypoint.coordinate.longitude)
+
+                let distance = coord1.distance(from: coord2)
+                
+                if (i == 0 || distance < minDistance) {
+                    minDistance = distance;
+                    locationId = route["_id"] as! Int;
+                }
+            }
+            let loc = Location(_id: locationId, longitude: waypoint.coordinate.longitude, latitude: waypoint.coordinate.latitude, when: getNowString());
+            let locationJsonData = try jsonEncoder.encode(loc)
+            let locationJson = String(data: locationJsonData, encoding: String.Encoding.utf8) ?? ""
+            
+            self.bridge.triggerWindowJSEvent(eventName: "arrived", data: locationJson);
+        } catch {
+            self.bridge.triggerWindowJSEvent(eventName: "arrived");
+        }
+        return true
+    }
     
+    public func navigationViewControllerDidDismiss(_ navigationViewController: NavigationViewController, byCanceling canceled: Bool) {
+        self.bridge.triggerWindowJSEvent(eventName: "navigation_closed");
+        navigationViewController.dismiss(animated: true);
+    }
 }
 
 class CustomDayStyle: DayStyle {
